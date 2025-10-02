@@ -52,6 +52,8 @@ export function LightStateProvider({ children }) {
             lamp_dim: lamp.lamp_dim,
             lux: lamp.lux,
             current_a: lamp.current_a,
+            lat: lamp.lat,
+            lng: lamp.lng,
             manualOverride: true,
             lastManualAction: new Date().toISOString(),
           },
@@ -62,7 +64,11 @@ export function LightStateProvider({ children }) {
         ...prev,
         {
           lightId: nodeId.toString(),
-          action: updates.lamp_state ? (updates.lamp_state === 'ON' ? 'on' : 'off') : `brightness ${updates.lamp_dim}%`,
+          action: updates.lamp_state
+            ? updates.lamp_state === 'ON' ? 'on' : 'off'
+            : updates.lat !== undefined || updates.lng !== undefined
+            ? 'update_location'
+            : `brightness ${updates.lamp_dim}%`,
           start: new Date(),
           end: new Date(),
           duration: 0,
@@ -82,6 +88,51 @@ export function LightStateProvider({ children }) {
       }
     }
   }, [lightStates]);
+
+  const addLight = useCallback(async (lampData) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('No token found, skipping add light');
+        return;
+      }
+      console.log('Adding light to backend:', lampData);
+      const response = await axios.post(
+        'http://localhost:5000/api/lamp/control',
+        lampData,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const { lamp } = response.data;
+      setLightStates((prev) => {
+        const newState = {
+          ...prev,
+          [lamp.node_id]: {
+            gw_id: lamp.gw_id,
+            node_id: lamp.node_id,
+            lamp_state: lamp.lamp_state,
+            lamp_dim: lamp.lamp_dim,
+            lux: lamp.lux,
+            current_a: lamp.current_a,
+            lat: lamp.lat,
+            lng: lamp.lng,
+            manualOverride: false,
+            lastManualAction: null,
+          },
+        };
+        return JSON.stringify(newState) !== JSON.stringify(prev) ? newState : prev;
+      });
+      console.log('Light added:', lamp);
+    } catch (err) {
+      console.error('Lỗi khi thêm bóng đèn:', err);
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('currentUser');
+        window.location.href = '/login';
+      }
+      throw err;
+    }
+  }, []);
 
   const fetchLightStates = useCallback(async () => {
     try {
@@ -104,6 +155,8 @@ export function LightStateProvider({ children }) {
           lamp_dim: lamp.lamp_dim,
           lux: lamp.lux,
           current_a: lamp.current_a,
+          lat: lamp.lat,
+          lng: lamp.lng,
           manualOverride: false,
           lastManualAction: null,
         };
@@ -365,6 +418,53 @@ export function LightStateProvider({ children }) {
     };
   }, [fetchLightStates, syncLightStatesWithSchedule]);
 
+  useEffect(() => {
+    console.log('Setting up MQTT subscriptions in LightStateProvider');
+    Object.keys(lightStates).forEach((nodeId) => {
+      const topic = `lamp/state/${nodeId}`;
+      mqttClient.subscribe(topic, { qos: 0 }, (err) => {
+        if (err) {
+          console.error(`Lỗi khi subscribe MQTT topic ${topic}:`, err);
+        } else {
+          console.log(`Subscribed to MQTT topic ${topic}`);
+        }
+      });
+    });
+
+    mqttClient.on('message', (topic, message) => {
+      try {
+        const data = JSON.parse(message.toString());
+        const nodeId = topic.split('/')[2];
+        console.log(`Received MQTT message on ${topic}:`, data);
+        setLightStates((prev) => {
+          if (!prev[nodeId]) return prev;
+          const newState = {
+            ...prev,
+            [nodeId]: {
+              ...prev[nodeId],
+              lamp_state: data.lamp_state || prev[nodeId].lamp_state,
+              lamp_dim: data.lamp_dim !== undefined ? data.lamp_dim : prev[nodeId].lamp_dim,
+              lux: data.lux !== undefined ? data.lux : prev[nodeId].lux,
+              current_a: data.current_a !== undefined ? data.current_a : prev[nodeId].current_a,
+              lat: data.lat !== undefined ? data.lat : prev[nodeId].lat,
+              lng: data.lng !== undefined ? data.lng : prev[nodeId].lng,
+            },
+          };
+          return JSON.stringify(newState) !== JSON.stringify(prev) ? newState : prev;
+        });
+      } catch (err) {
+        console.error(`Lỗi khi xử lý MQTT message trên topic ${topic}:`, err);
+      }
+    });
+
+    return () => {
+      console.log('Cleaning up MQTT subscriptions in LightStateProvider');
+      Object.keys(lightStates).forEach((nodeId) => {
+        mqttClient.unsubscribe(`lamp/state/${nodeId}`);
+      });
+    };
+  }, [lightStates]);
+
   return (
     <LightStateContext.Provider
       value={{
@@ -379,6 +479,7 @@ export function LightStateProvider({ children }) {
         updateLightState,
         addSchedule,
         deleteSchedule,
+        addLight,
       }}
     >
       {children}

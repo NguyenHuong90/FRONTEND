@@ -1,30 +1,31 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useLocation } from 'react-router-dom'; // Thêm import này để detect route change
+import { useLocation } from 'react-router-dom';
 import { Box, Typography, useTheme, Button, TextField, Alert, Slider } from '@mui/material';
 import { tokens } from '../../theme';
 import { useLightState } from '../../hooks/useLightState';
 import Header from '../../components/Header';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined';
-import axios from 'axios';
+import axios from 'axios'; // Added axios import
 
 const LightControl = () => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
-  const location = useLocation(); // Thêm để detect route change
-  const { lightStates, setLightStates, syncLightStatesWithSchedule, fetchLightStates, updateLightState } = useLightState();
+  const location = useLocation();
+  const { lightStates, setLightStates, syncLightStatesWithSchedule, fetchLightStates, updateLightState, addLight } = useLightState();
   const [localBrightness, setLocalBrightness] = useState({});
   const [newGwId, setNewGwId] = useState('gw-01');
   const [newNodeId, setNewNodeId] = useState('');
+  const [newLat, setNewLat] = useState('');
+  const [newLng, setNewLng] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
     console.log('Fetching light states and syncing schedules on LightControl mount or route change');
     fetchLightStates();
-    syncLightStatesWithSchedule(new Date()); // Đồng bộ ngay khi mount hoặc route change
-  }, [location, fetchLightStates, syncLightStatesWithSchedule]); // Thêm location để gọi sync khi route change
+    syncLightStatesWithSchedule(new Date());
+  }, [location, fetchLightStates, syncLightStatesWithSchedule]);
 
-  // Tự động xóa thông báo lỗi sau 5 giây
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(''), 5000);
@@ -101,6 +102,8 @@ const LightControl = () => {
       return;
     }
     const nodeIdNum = parseInt(newNodeId);
+    const latNum = parseFloat(newLat);
+    const lngNum = parseFloat(newLng);
     if (isNaN(nodeIdNum) || nodeIdNum < 1) {
       setError('ID bóng đèn phải là số nguyên dương!');
       return;
@@ -109,43 +112,33 @@ const LightControl = () => {
       setError(`Bóng đèn với ID ${nodeIdNum} đã tồn tại!`);
       return;
     }
+    if (newLat && (isNaN(latNum) || latNum < -90 || latNum > 90)) {
+      setError('Vĩ độ phải là số từ -90 đến 90!');
+      return;
+    }
+    if (newLng && (isNaN(lngNum) || lngNum < -180 || lngNum > 180)) {
+      setError('Kinh độ phải là số từ -180 đến 180!');
+      return;
+    }
 
     try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        'http://localhost:5000/api/lamp/control',
-        {
-          gw_id: newGwId,
-          node_id: nodeIdNum.toString(),
-          lamp_state: 'OFF',
-          lamp_dim: 50,
-          lux: 0,
-          current_a: 0,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const now = new Date();
-      setLightStates((prev) => {
-        const newState = {
-          ...prev,
-          [nodeIdNum]: {
-            gw_id: newGwId,
-            node_id: nodeIdNum.toString(),
-            lamp_state: 'OFF',
-            lamp_dim: 50,
-            lux: 0,
-            current_a: 0,
-            manualOverride: false,
-            lastManualAction: null,
-          },
-        };
-        return JSON.stringify(newState) !== JSON.stringify(prev) ? newState : prev;
+      await addLight({
+        gw_id: newGwId,
+        node_id: nodeIdNum.toString(),
+        lamp_state: 'OFF',
+        lamp_dim: 50,
+        lux: 0,
+        current_a: 0,
+        lat: newLat ? latNum : null,
+        lng: newLng ? lngNum : null,
       });
       setNewNodeId('');
       setNewGwId('gw-01');
+      setNewLat('');
+      setNewLng('');
       setError('');
       console.log('Light added successfully:', nodeIdNum);
-      await syncLightStatesWithSchedule(now);
+      await syncLightStatesWithSchedule(new Date());
     } catch (err) {
       const message = err.response?.status === 401
         ? 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại'
@@ -161,7 +154,7 @@ const LightControl = () => {
         window.location.href = '/login';
       }
     }
-  }, [newNodeId, newGwId, lightStates, syncLightStatesWithSchedule]);
+  }, [newNodeId, newGwId, newLat, newLng, lightStates, addLight, syncLightStatesWithSchedule]);
 
   const handleDeleteLight = useCallback(async (nodeId) => {
     if (!window.confirm(`Bạn có chắc muốn xóa bóng đèn ${nodeId}?`)) return;
@@ -202,7 +195,7 @@ const LightControl = () => {
         window.location.href = '/login';
       }
     }
-  }, [lightStates, fetchLightStates, syncLightStatesWithSchedule]);
+  }, [lightStates, setLightStates, fetchLightStates, syncLightStatesWithSchedule]); // Added setLightStates to dependencies
 
   return (
     <Box m="20px">
@@ -221,6 +214,22 @@ const LightControl = () => {
             onChange={(e) => setNewNodeId(e.target.value)}
             type="number"
             inputProps={{ min: 1 }}
+            sx={{ input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
+          />
+          <TextField
+            label="Vĩ độ (-90 đến 90)"
+            value={newLat}
+            onChange={(e) => setNewLat(e.target.value)}
+            type="number"
+            inputProps={{ step: 0.0001 }}
+            sx={{ input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
+          />
+          <TextField
+            label="Kinh độ (-180 đến 180)"
+            value={newLng}
+            onChange={(e) => setNewLng(e.target.value)}
+            type="number"
+            inputProps={{ step: 0.0001 }}
             sx={{ input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
           />
           <Button variant="contained" color="success" onClick={handleAddLight}>
@@ -267,6 +276,9 @@ const LightControl = () => {
                 </Typography>
                 <Typography variant="body2" color={colors.grey[300]}>
                   Cổng kết nối: {lightStates[nodeId]?.gw_id || 'N/A'}
+                </Typography>
+                <Typography variant="body2" color={colors.grey[300]}>
+                  Vị trí: {lightStates[nodeId]?.lat && lightStates[nodeId]?.lng ? `(${lightStates[nodeId].lat.toFixed(4)}, ${lightStates[nodeId].lng.toFixed(4)})` : 'Chưa đặt'}
                 </Typography>
                 <Typography variant="body2" color={colors.grey[300]}>
                   Cảm biến ánh sáng: {lightStates[nodeId]?.lux || 0} lux
