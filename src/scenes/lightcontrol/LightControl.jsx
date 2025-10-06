@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Box, Typography, useTheme, Button, TextField, Alert, Slider } from '@mui/material';
+import { Box, Typography, useTheme, Button, TextField, Alert, Slider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { tokens } from '../../theme';
 import { useLightState } from '../../hooks/useLightState';
 import Header from '../../components/Header';
 import LightbulbIcon from '@mui/icons-material/Lightbulb';
 import LightbulbOutlinedIcon from '@mui/icons-material/LightbulbOutlined';
-import axios from 'axios'; // Added axios import
+import axios from 'axios';
 
+// Component điều khiển đèn
 const LightControl = () => {
   const theme = useTheme();
   const colors = tokens(theme.palette.mode);
@@ -19,13 +20,17 @@ const LightControl = () => {
   const [newLat, setNewLat] = useState('');
   const [newLng, setNewLng] = useState('');
   const [error, setError] = useState('');
+  const [openEditDialog, setOpenEditDialog] = useState(false);
+  const [selectedLight, setSelectedLight] = useState(null);
 
+  // Tải trạng thái đèn và đồng bộ lịch trình
   useEffect(() => {
-    console.log('Fetching light states and syncing schedules on LightControl mount or route change');
+    console.log('Tải trạng thái đèn và đồng bộ lịch trình khi mount LightControl hoặc chuyển trang');
     fetchLightStates();
     syncLightStatesWithSchedule(new Date());
   }, [location, fetchLightStates, syncLightStatesWithSchedule]);
 
+  // Xóa thông báo lỗi sau 5 giây
   useEffect(() => {
     if (error) {
       const timer = setTimeout(() => setError(''), 5000);
@@ -33,8 +38,9 @@ const LightControl = () => {
     }
   }, [error]);
 
+  // Bật/tắt đèn
   const handleToggleLight = useCallback(async (nodeId) => {
-    console.log('Toggling light:', nodeId, 'Current state:', lightStates[nodeId]?.lamp_state);
+    console.log('Đang bật/tắt đèn:', nodeId, 'Trạng thái hiện tại:', lightStates[nodeId]?.lamp_state);
     const now = new Date();
     const newState = lightStates[nodeId]?.lamp_state === 'ON' ? 'OFF' : 'ON';
     try {
@@ -44,7 +50,7 @@ const LightControl = () => {
       }
       await syncLightStatesWithSchedule(now);
       setError('');
-      console.log('Light toggled successfully:', nodeId, 'New state:', newState);
+      console.log('Bật/tắt đèn thành công:', nodeId, 'Trạng thái mới:', newState);
     } catch (err) {
       const message = err.response?.status === 401
         ? 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại'
@@ -52,7 +58,7 @@ const LightControl = () => {
         ? 'Quá nhiều yêu cầu, vui lòng thử lại sau vài phút'
         : err.response?.data?.message || 'Không thể bật/tắt đèn';
       setError(message);
-      console.error('Error toggling light:', err);
+      console.error('Lỗi khi bật/tắt đèn:', err);
       if (err.response?.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
@@ -62,19 +68,21 @@ const LightControl = () => {
     }
   }, [lightStates, updateLightState, syncLightStatesWithSchedule]);
 
+  // Thay đổi độ sáng
   const handleBrightnessChange = useCallback((nodeId, newValue) => {
-    console.log('Brightness changing:', nodeId, 'New value:', newValue);
+    console.log('Đang thay đổi độ sáng:', nodeId, 'Giá trị mới:', newValue);
     setLocalBrightness((prev) => ({ ...prev, [nodeId]: newValue }));
   }, []);
 
+  // Xác nhận thay đổi độ sáng
   const handleBrightnessChangeCommitted = useCallback(async (nodeId, newValue) => {
-    console.log('Brightness committed:', nodeId, 'New value:', newValue);
+    console.log('Xác nhận độ sáng:', nodeId, 'Giá trị mới:', newValue);
     const now = new Date();
     try {
       await updateLightState(nodeId, { lamp_dim: newValue });
       await syncLightStatesWithSchedule(now);
       setError('');
-      console.log('Brightness updated successfully:', nodeId, newValue);
+      console.log('Cập nhật độ sáng thành công:', nodeId, newValue);
     } catch (err) {
       const message = err.response?.status === 401
         ? 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại'
@@ -82,7 +90,7 @@ const LightControl = () => {
         ? 'Quá nhiều yêu cầu, vui lòng thử lại sau vài phút'
         : err.response?.data?.message || 'Không thể cập nhật độ sáng';
       setError(message);
-      console.error('Error updating brightness:', err);
+      console.error('Lỗi khi cập nhật độ sáng:', err);
       if (err.response?.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
@@ -92,6 +100,7 @@ const LightControl = () => {
     }
   }, [updateLightState, syncLightStatesWithSchedule]);
 
+  // Thêm bóng đèn
   const handleAddLight = useCallback(async () => {
     if (!newNodeId.trim()) {
       setError('Vui lòng nhập ID bóng đèn (số nguyên, ví dụ: 2)!');
@@ -137,7 +146,7 @@ const LightControl = () => {
       setNewLat('');
       setNewLng('');
       setError('');
-      console.log('Light added successfully:', nodeIdNum);
+      console.log('Thêm bóng đèn thành công:', nodeIdNum);
       await syncLightStatesWithSchedule(new Date());
     } catch (err) {
       const message = err.response?.status === 401
@@ -146,7 +155,7 @@ const LightControl = () => {
         ? 'Quá nhiều yêu cầu, vui lòng thử lại sau vài phút'
         : err.response?.data?.message || 'Không thể thêm bóng đèn';
       setError(message);
-      console.error('Error adding light:', err);
+      console.error('Lỗi khi thêm bóng đèn:', err);
       if (err.response?.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
@@ -156,6 +165,7 @@ const LightControl = () => {
     }
   }, [newNodeId, newGwId, newLat, newLng, lightStates, addLight, syncLightStatesWithSchedule]);
 
+  // Xóa bóng đèn
   const handleDeleteLight = useCallback(async (nodeId) => {
     if (!window.confirm(`Bạn có chắc muốn xóa bóng đèn ${nodeId}?`)) return;
 
@@ -179,7 +189,7 @@ const LightControl = () => {
       await syncLightStatesWithSchedule(now);
       fetchLightStates();
       setError('');
-      console.log('Light deleted successfully:', nodeId);
+      console.log('Xóa bóng đèn thành công:', nodeId);
     } catch (err) {
       const message = err.response?.status === 401
         ? 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại'
@@ -187,7 +197,7 @@ const LightControl = () => {
         ? 'Quá nhiều yêu cầu, vui lòng thử lại sau vài phút'
         : err.response?.data?.message || 'Không thể xóa bóng đèn';
       setError(message);
-      console.error('Error deleting light:', err);
+      console.error('Lỗi khi xóa bóng đèn:', err);
       if (err.response?.status === 401) {
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
@@ -195,7 +205,43 @@ const LightControl = () => {
         window.location.href = '/login';
       }
     }
-  }, [lightStates, setLightStates, fetchLightStates, syncLightStatesWithSchedule]); // Added setLightStates to dependencies
+  }, [lightStates, setLightStates, fetchLightStates, syncLightStatesWithSchedule]);
+
+  // Chỉnh sửa vị trí đèn
+  const handleEditLight = useCallback(async () => {
+    const latNum = parseFloat(selectedLight.lat);
+    const lngNum = parseFloat(selectedLight.lng);
+
+    if (isNaN(latNum) || isNaN(lngNum) || latNum < -90 || latNum > 90 || lngNum < -180 || lngNum > 180) {
+      setError('Tọa độ không hợp lệ (lat: -90 đến 90, lng: -180 đến 180)!');
+      return;
+    }
+
+    try {
+      await updateLightState(selectedLight.node_id, {
+        lat: latNum,
+        lng: lngNum,
+      });
+      setOpenEditDialog(false);
+      setSelectedLight(null);
+      setError('');
+      console.log('Cập nhật vị trí đèn thành công:', selectedLight.node_id);
+    } catch (err) {
+      const message = err.response?.status === 401
+        ? 'Phiên đăng nhập hết hạn, vui lòng đăng nhập lại'
+        : err.response?.status === 429
+        ? 'Quá nhiều yêu cầu, vui lòng thử lại sau vài phút'
+        : err.response?.data?.message || 'Không thể cập nhật vị trí đèn';
+      setError(message);
+      console.error('Lỗi khi cập nhật vị trí đèn:', err);
+      if (err.response?.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('currentUser');
+        window.location.href = '/login';
+      }
+    }
+  }, [selectedLight, updateLightState]);
 
   return (
     <Box m="20px">
@@ -286,6 +332,9 @@ const LightControl = () => {
                 <Typography variant="body2" color={colors.grey[300]}>
                   Dòng điện: {lightStates[nodeId]?.current_a || 0} A
                 </Typography>
+                <Typography variant="body2" color={colors.grey[300]}>
+                  Năng lượng tiêu thụ: {lightStates[nodeId]?.energy_consumed || 0} kWh
+                </Typography>
               </Box>
             </Box>
             <Box sx={{ width: '150px', ml: '20px' }}>
@@ -324,6 +373,17 @@ const LightControl = () => {
               </Button>
               <Button
                 variant="contained"
+                color="primary"
+                sx={{ ml: '10px' }}
+                onClick={() => {
+                  setSelectedLight({ node_id: nodeId, lat: lightStates[nodeId].lat, lng: lightStates[nodeId].lng });
+                  setOpenEditDialog(true);
+                }}
+              >
+                Sửa vị trí
+              </Button>
+              <Button
+                variant="contained"
                 color="error"
                 sx={{ ml: '10px' }}
                 onClick={() => handleDeleteLight(nodeId)}
@@ -334,6 +394,49 @@ const LightControl = () => {
           </Box>
         ))}
       </Box>
+      <Dialog open={openEditDialog} onClose={() => setOpenEditDialog(false)}>
+        <DialogTitle sx={{ color: colors.grey[100], backgroundColor: colors.primary[400] }}>
+          Sửa vị trí bóng đèn
+        </DialogTitle>
+        <DialogContent sx={{ backgroundColor: colors.primary[400] }}>
+          {selectedLight && (
+            <>
+              <Typography sx={{ mb: '10px', color: colors.grey[100] }}>
+                Đèn: {selectedLight.node_id}
+              </Typography>
+              <TextField
+                label="Vĩ độ (-90 đến 90)"
+                value={selectedLight.lat || ''}
+                onChange={(e) => setSelectedLight({ ...selectedLight, lat: e.target.value })}
+                type="number"
+                inputProps={{ step: 0.0001 }}
+                fullWidth
+                sx={{ mb: '10px', input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
+              />
+              <TextField
+                label="Kinh độ (-180 đến 180)"
+                value={selectedLight.lng || ''}
+                onChange={(e) => setSelectedLight({ ...selectedLight, lng: e.target.value })}
+                type="number"
+                inputProps={{ step: 0.0001 }}
+                fullWidth
+                sx={{ mb: '10px', input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
+              />
+              <Alert severity="info" sx={{ mt: '10px' }}>
+                Nhập tọa độ thủ công hoặc chuyển sang trang Bản đồ để chọn vị trí trực tiếp.
+              </Alert>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ backgroundColor: colors.primary[400], p: '10px' }}>
+          <Button onClick={() => setOpenEditDialog(false)} color="secondary">
+            Hủy
+          </Button>
+          <Button onClick={handleEditLight} color="success" disabled={!selectedLight?.lat || !selectedLight?.lng}>
+            Lưu
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

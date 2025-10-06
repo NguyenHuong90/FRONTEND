@@ -23,6 +23,7 @@ import { formatDate } from "@fullcalendar/react";
 import DeleteIcon from "@mui/icons-material/Delete";
 import axios from "axios";
 import Papa from "papaparse";
+import { useLightState } from "../../hooks/useLightState"; // Import context
 
 const History = () => {
   const theme = useTheme();
@@ -43,6 +44,7 @@ const History = () => {
 
   const currentUser = JSON.parse(localStorage.getItem("currentUser") || "{}");
   const isAdmin = currentUser?.role === "admin";
+  const { lightHistory } = useLightState(); // Lấy lightHistory từ context
 
   const actionLabels = {
     set_lamp_on: "Bật đèn",
@@ -194,6 +196,7 @@ const History = () => {
           })
         : "N/A",
       Brightness: log.details?.lampDim !== undefined ? `${log.details.lampDim}%` : "N/A",
+      EnergyConsumed: log.details?.energyConsumed !== undefined ? `${log.details.energyConsumed} kWh` : "N/A",
       IP: log.ip || "N/A",
       Timestamp: formatDate(log.timestamp, {
         year: "numeric",
@@ -337,6 +340,7 @@ const History = () => {
                     <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>Thời gian bắt đầu</TableCell>
                     <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>Thời gian kết thúc</TableCell>
                     <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>Độ sáng (%)</TableCell>
+                    <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>Năng lượng tiêu thụ (kWh)</TableCell>
                     <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>IP</TableCell>
                     <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>Thời gian</TableCell>
                     <TableCell sx={{ color: colors.grey[100], fontWeight: "bold" }}>Hành động</TableCell>
@@ -387,6 +391,9 @@ const History = () => {
                       </TableCell>
                       <TableCell sx={{ color: colors.grey[100] }}>
                         {log.details?.lampDim !== undefined ? `${log.details.lampDim}%` : "N/A"}
+                      </TableCell>
+                      <TableCell sx={{ color: colors.grey[100] }}>
+                        {log.details?.energyConsumed !== undefined ? `${log.details.energyConsumed} kWh` : "N/A"}
                       </TableCell>
                       <TableCell sx={{ color: colors.grey[100] }}>{log.ip || "N/A"}</TableCell>
                       <TableCell sx={{ color: colors.grey[100] }}>

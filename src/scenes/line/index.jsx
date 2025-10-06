@@ -1,141 +1,195 @@
-import { useState, useEffect, useMemo } from "react";
-import { Box, Typography, Select, MenuItem, TextField, Alert, useTheme } from "@mui/material";
-import Header from "../../components/Header";
-import LineChart from "../../components/LineChart";
-import { useLightState } from "../../hooks/useLightState";
-import { tokens } from "../../theme";
+/*import React, { useContext, useMemo, useState } from 'react';
+import { Line as LineChartComponent } from 'react-chartjs-2';
+import { LightStateContext } from '../../hooks/useLightState';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+);
+
+const LineChart = ({ data, labels, dataType }) => {
+  const chartData = {
+    labels: labels,
+    datasets: [
+      {
+        label: `Light ${dataType.charAt(0).toUpperCase() + dataType.slice(1)}`,
+        data: data,
+        fill: false,
+        borderColor: '#42A5F5',
+        backgroundColor: '#42A5F5',
+        tension: 0.1,
+      },
+    ],
+  };
+
+  const options = {
+    responsive: true,
+    plugins: {
+      legend: { position: 'top' },
+      title: { display: true, text: `Light ${dataType.charAt(0).toUpperCase() + dataType.slice(1)} Over Time` },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: { display: true, text: dataType.charAt(0).toUpperCase() + dataType.slice(1) },
+      },
+      x: {
+        title: { display: true, text: 'Time' },
+      },
+    },
+  };
+
+  return <LineChartComponent data={chartData} options={options} />;
+};
 
 const Line = () => {
-  const theme = useTheme();
-  const colors = tokens(theme.palette.mode);
-  const { lightStates, lightHistory } = useLightState();
-  const [selectedLight, setSelectedLight] = useState(Object.keys(lightStates)[0] || "");
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
-  const [error, setError] = useState("");
+  const { lightStates, lightHistory, activityLogs } = useContext(LightStateContext);
+  const [selectedLight, setSelectedLight] = useState('');
+  const [dataType, setDataType] = useState('brightness');
+  const [startDate, setStartDate] = useState(
+    new Date(new Date().setDate(new Date().getDate() - 7)).toISOString().split('T')[0]
+  );
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // Tự động xóa thông báo lỗi sau 5 giây
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(""), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
-
-  // Lọc và xử lý dữ liệu lịch sử cho biểu đồ
   const chartData = useMemo(() => {
-    if (!selectedLight || !lightStates[selectedLight]) return { labels: [], datasets: [] };
+    let labels = [];
+    let data = [];
 
-    const filteredHistory = lightHistory
-      .filter((entry) => entry.lightId === selectedLight)
-      .filter((entry) => {
-        const entryDate = new Date(entry.timestamp);
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999); // Bao gồm cả ngày kết thúc
-        return entryDate >= start && entryDate <= end;
-      })
-      .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    if (dataType === 'brightness') {
+      const filteredHistory = lightHistory
+        .filter((entry) => entry.lightId === selectedLight)
+        .filter((entry) => {
+          const entryDate = new Date(entry.timestamp);
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          return entryDate >= start && entryDate <= end;
+        })
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-    const labels = filteredHistory.map((entry) =>
-      new Date(entry.timestamp).toLocaleString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      })
-    );
-    const data = filteredHistory.map((entry) => {
-      if (entry.action.includes("brightness")) {
-        return parseInt(entry.action.split(" ")[1]);
-      } else if (entry.action === "on") {
-        return lightStates[selectedLight]?.lamp_dim || 50; // Giá trị mặc định khi bật
-      } else if (entry.action === "off") {
-        return 0;
-      }
-      return lightStates[selectedLight]?.lamp_dim || 0; // Giá trị mặc định nếu không khớp
-    });
+      labels = filteredHistory.map((entry) =>
+        new Date(entry.timestamp).toLocaleString('vi-VN', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      );
 
-    return {
-      labels,
-      datasets: [
-        {
-          label: `Độ sáng đèn ${selectedLight} (%)`,
-          data,
-          borderColor: colors.greenAccent[500],
-          backgroundColor: colors.greenAccent[300],
-          fill: false,
-          tension: 0.1,
-        },
-      ],
-    };
-  }, [lightHistory, selectedLight, startDate, endDate, lightStates, colors]);
-
-  // Cập nhật lỗi khi không có dữ liệu
-  useEffect(() => {
-    if (selectedLight && chartData.labels.length === 0) {
-      setError("Không có dữ liệu lịch sử cho bóng đèn này trong khoảng thời gian đã chọn!");
-    } else if (!selectedLight && Object.keys(lightStates).length > 0) {
-      setError("Vui lòng chọn một bóng đèn để xem biểu đồ.");
+      data = filteredHistory.map((entry) => {
+        const brightnessMatch = entry.action.match(/brightness (\d+)%/);
+        return brightnessMatch ? parseInt(brightnessMatch[1]) : entry.action === 'on' ? 100 : 0;
+      });
     } else {
-      setError("");
+      const filteredLogs = activityLogs
+        .filter((log) => log.details?.nodeId === selectedLight)
+        .filter((log) => {
+          const logDate = new Date(log.timestamp);
+          const start = new Date(startDate);
+          const end = new Date(endDate);
+          end.setHours(23, 59, 59, 999);
+          return logDate >= start && logDate <= end;
+        })
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+      labels = filteredLogs.map((log) =>
+        new Date(log.timestamp).toLocaleString('vi-VN', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      );
+
+      data = filteredLogs.map((log) => {
+        if (dataType === 'lux') {
+          return log.details?.lux || 0;
+        } else if (dataType === 'current') {
+          return log.details?.currentA || 0;
+        }
+        return 0;
+      });
     }
-  }, [chartData, selectedLight, lightStates]);
+
+    return { data, labels };
+  }, [lightHistory, activityLogs, selectedLight, dataType, startDate, endDate]);
 
   return (
-    <Box m="20px">
-      <Header title="Biểu đồ Đường" subtitle="Lịch sử độ sáng của bóng đèn" />
-      <Box mb="20px" display="flex" alignItems="center" gap="10px">
-        <Select
+    <div className="p-4">
+      <h2 className="text-2xl font-bold mb-4">Biểu đồ dữ liệu đèn</h2>
+      <div className="mb-4">
+        <label className="mr-2">Chọn đèn:</label>
+        <select
           value={selectedLight}
           onChange={(e) => setSelectedLight(e.target.value)}
-          displayEmpty
-          sx={{ minWidth: "150px", color: colors.grey[100] }}
+          className="border p-2"
         >
-          <MenuItem value="" disabled>
-            Chọn bóng đèn
-          </MenuItem>
-          {Object.keys(lightStates).map((light) => (
-            <MenuItem key={light} value={light}>
-              Đèn {light}
-            </MenuItem>
+          <option value="">Chọn một đèn</option>
+          {Object.keys(lightStates).map((lightId) => (
+            <option key={lightId} value={lightId}>
+              Đèn {lightId}
+            </option>
           ))}
-        </Select>
-        <TextField
-          label="Từ ngày"
+        </select>
+      </div>
+      <div className="mb-4">
+        <label className="mr-2">Loại dữ liệu:</label>
+        <select
+          value={dataType}
+          onChange={(e) => setDataType(e.target.value)}
+          className="border p-2"
+        >
+          <option value="brightness">Độ sáng</option>
+          <option value="lux">Lux</option>
+          <option value="current">Dòng điện (A)</option>
+        </select>
+      </div>
+      <div className="mb-4">
+        <label className="mr-2">Ngày bắt đầu:</label>
+        <input
           type="date"
           value={startDate}
           onChange={(e) => setStartDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
+          className="border p-2"
         />
-        <TextField
-          label="Đến ngày"
+      </div>
+      <div className="mb-4">
+        <label className="mr-2">Ngày kết thúc:</label>
+        <input
           type="date"
           value={endDate}
           onChange={(e) => setEndDate(e.target.value)}
-          InputLabelProps={{ shrink: true }}
-          sx={{ input: { color: colors.grey[100] }, label: { color: colors.grey[300] } }}
+          className="border p-2"
         />
-      </Box>
-      {error && <Alert severity="warning" sx={{ mb: "10px" }}>{error}</Alert>}
-      {Object.keys(lightStates).length === 0 && (
-        <Alert severity="info" sx={{ mb: "10px" }}>
-          Hiện tại chưa có bóng đèn nào được thêm. Vui lòng thêm bóng đèn trong trang Điều khiển đèn.
-        </Alert>
+      </div>
+      {selectedLight && chartData.labels.length > 0 ? (
+        <LineChart data={chartData.data} labels={chartData.labels} dataType={dataType} />
+      ) : (
+        <p className="text-red-500">
+          {selectedLight
+            ? 'Không có dữ liệu cho đèn và khoảng thời gian đã chọn.'
+            : 'Vui lòng chọn một đèn.'}
+        </p>
       )}
-      <Box height="75vh" sx={{ position: "relative" }}>
-        {selectedLight && chartData.labels.length > 0 ? (
-          <LineChart chartData={chartData} />
-        ) : (
-          <Typography color={colors.grey[100]} sx={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}>
-            {selectedLight ? "Không có dữ liệu để hiển thị." : "Vui lòng chọn một bóng đèn."}
-          </Typography>
-        )}
-      </Box>
-    </Box>
+    </div>
   );
 };
 
-export default Line;
+export default Line;*/

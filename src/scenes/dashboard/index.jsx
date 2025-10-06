@@ -20,13 +20,47 @@ const Dashboard = () => {
   const { lightStates, currentEvents, syncLightStatesWithSchedule } = useLightState();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [statusMessage, setStatusMessage] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(true);
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const verifyToken = async () => {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setIsAuthenticated(false);
+        setStatusMessage("Không có token, vui lòng đăng nhập lại.");
+        navigate("/login", { replace: true });
+        return;
+      }
+      try {
+        const response = await fetch("http://localhost:5000/api/auth/verify", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) throw new Error(response.status);
+        setIsAuthenticated(true);
+      } catch (err) {
+        if (err.message === "401") {
+          setIsAuthenticated(false);
+          setStatusMessage("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.");
+          navigate("/login", { replace: true });
+        }
+      }
+    };
+
+    verifyToken();
+
+    const interval = setInterval(async () => {
+      if (!isAuthenticated) return; // Không gọi API nếu không xác thực
       const now = new Date();
       setCurrentTime(now);
       try {
-        const activeEvents = syncLightStatesWithSchedule(now);
+        const token = localStorage.getItem("token");
+        if (!token) {
+          setIsAuthenticated(false);
+          setStatusMessage("Không có token, vui lòng đăng nhập lại.");
+          navigate("/login", { replace: true });
+          return;
+        }
+        const activeEvents = await syncLightStatesWithSchedule(now);
         const displayEvents = activeEvents.filter(
           (e) =>
             (e.extendedProps.action === "on" &&
@@ -51,32 +85,37 @@ const Dashboard = () => {
             : "Không có lịch trình đang hoạt động."
         );
       } catch (e) {
-        console.error("Error in Dashboard useEffect:", e);
-        setStatusMessage("Lỗi khi đồng bộ lịch trình. Vui lòng kiểm tra bộ nhớ trình duyệt.");
+        console.error("Lỗi trong Dashboard useEffect:", e);
+        if (e.message === "401") {
+          setIsAuthenticated(false);
+          setStatusMessage("Phiên đăng nhập hết hạn, vui lòng đăng nhập lại.");
+          navigate("/login", { replace: true });
+        } else {
+          setStatusMessage("Lỗi khi đồng bộ lịch trình. Vui lòng thử lại sau.");
+        }
       }
-    }, 1000);
+    }, 30000); // Tăng interval lên 30 giây để giảm tải
     return () => clearInterval(interval);
-  }, [currentEvents, syncLightStatesWithSchedule]);
+  }, [currentEvents, syncLightStatesWithSchedule, navigate, isAuthenticated]);
 
   const handleLogout = () => {
     try {
-      localStorage.removeItem("isAuthenticated");
-      localStorage.removeItem("currentUser");
-      navigate("/login");
-      window.location.reload();
+      localStorage.clear();
+      setIsAuthenticated(false);
+      navigate("/login", { replace: true });
     } catch (e) {
-      console.error("Error during logout:", e);
+      console.error("Lỗi khi đăng xuất:", e);
       alert("Lỗi khi đăng xuất. Vui lòng thử lại.");
     }
   };
 
-  const lightsOn = Object.values(lightStates).filter((light) => light.isOn).length;
+  const lightsOn = Object.values(lightStates).filter((light) => light.lamp_state === "ON").length;
   const lightsOff = Object.values(lightStates).length - lightsOn;
 
   return (
     <Box m="20px">
       <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Header title="DASHBOARD" subtitle="Welcome to your dashboard" />
+        <Header title="DASHBOARD" subtitle="Chào mừng bạn đến với dashboard" />
         <Box>
           <Button
             sx={{
@@ -89,7 +128,7 @@ const Dashboard = () => {
             }}
           >
             <DownloadOutlinedIcon sx={{ mr: "10px" }} />
-            Download Reports
+            Tải báo cáo
           </Button>
           <Button
             onClick={handleLogout}
@@ -102,7 +141,7 @@ const Dashboard = () => {
               "&:hover": { backgroundColor: colors.redAccent[600] },
             }}
           >
-            Logout
+            Đăng xuất
           </Button>
         </Box>
       </Box>
@@ -124,7 +163,7 @@ const Dashboard = () => {
       </Typography>
 
       {statusMessage && (
-        <Alert severity={statusMessage.includes("Lỗi") ? "error" : "info"} sx={{ mb: "20px" }}>
+        <Alert severity={statusMessage.includes("Lỗi") || statusMessage.includes("hết hạn") ? "error" : "info"} sx={{ mb: "20px" }}>
           {statusMessage}
         </Alert>
       )}
@@ -190,7 +229,7 @@ const Dashboard = () => {
             </Box>
             {Object.keys(lightStates).map((lightId) => (
               <Box key={lightId} mb="15px" sx={{ display: "flex", alignItems: "center" }}>
-                {lightStates[lightId].isOn ? (
+                {lightStates[lightId].lamp_state === "ON" ? (
                   <LightbulbIcon sx={{ color: colors.greenAccent[500], fontSize: "24px", mr: "10px" }} />
                 ) : (
                   <LightbulbOutlinedIcon sx={{ color: colors.grey[500], fontSize: "24px", mr: "10px" }} />
@@ -201,21 +240,27 @@ const Dashboard = () => {
                   </Typography>
                   <Typography
                     variant="body2"
-                    color={lightStates[lightId].isOn ? colors.greenAccent[500] : colors.redAccent[500]}
+                    color={lightStates[lightId].lamp_state === "ON" ? colors.greenAccent[500] : colors.redAccent[500]}
                   >
-                    Trạng thái: {lightStates[lightId].isOn ? "Bật" : "Tắt"}
+                    Trạng thái: {lightStates[lightId].lamp_state === "ON" ? "Bật" : "Tắt"}
                   </Typography>
                   <Typography variant="body2" color={colors.grey[300]}>
-                    Công suất: {lightStates[lightId].power || 0}W
+                    Công suất: {(lightStates[lightId].current_a * 220 * (lightStates[lightId].lamp_dim / 100)).toFixed(2)} W
                   </Typography>
                   <Typography variant="body2" color={colors.grey[300]}>
-                    Độ sáng: {lightStates[lightId].brightness || 100}%
+                    Độ sáng: {lightStates[lightId].lamp_dim || 0}%
                   </Typography>
                   <Typography variant="body2" color={colors.grey[300]}>
-                    Cảm biến dòng: {lightStates[lightId].currentSensor || 0} mA
+                    Cảm biến dòng: {lightStates[lightId].current_a || 0} A
                   </Typography>
                   <Typography variant="body2" color={colors.grey[300]}>
-                    Cảm biến ánh sáng: {lightStates[lightId].lightSensor || 0} lux
+                    Cảm biến ánh sáng: {lightStates[lightId].lux || 0} lux
+                  </Typography>
+                  <Typography variant="body2" color={colors.grey[300]}>
+                    Vị trí: {lightStates[lightId].lat && lightStates[lightId].lng ? `(${lightStates[lightId].lat.toFixed(4)}, ${lightStates[lightId].lng.toFixed(4)})` : "Chưa đặt"}
+                  </Typography>
+                  <Typography variant="body2" color={colors.grey[300]}>
+                    Năng lượng tiêu thụ: {lightStates[lightId].energy_consumed?.toFixed(2) || 0} kWh
                   </Typography>
                 </Box>
               </Box>
@@ -235,9 +280,9 @@ const Dashboard = () => {
           <Box display="flex" flexDirection="column" alignItems="center" mt="25px">
             <ProgressCircle size="125" />
             <Typography variant="h5" color={colors.greenAccent[500]} sx={{ mt: "15px" }}>
-              $48,352
+              {(Object.values(lightStates).reduce((sum, light) => sum + (light.energy_consumed || 0), 0)).toFixed(2)} kWh
             </Typography>
-            <Typography>Includes extra misc expenditures and costs</Typography>
+            <Typography>Tổng năng lượng tiêu thụ của tất cả bóng đèn</Typography>
           </Box>
         </Box>
         <Box
